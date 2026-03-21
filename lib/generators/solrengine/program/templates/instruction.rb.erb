@@ -1,0 +1,12 @@
+class <%= program_class %>::<%= @instruction.name.camelize %>Instruction < Solrengine::Programs::Instruction
+  program_id "<%= @program_id %>"
+  instruction_name "<%= @instruction.name %>"
+
+<% @instruction.args.each do |arg| -%>
+  argument :<%= arg.name %>, <%= arg.type.is_a?(String) ? "\"#{arg.type}\"" : arg.type.inspect %>
+<% end -%>
+
+<% @instruction.accounts.each do |acct| -%>
+  account :<%= acct.name %><%= ", signer: true" if acct.signer %><%= ", writable: true" if acct.writable %><%= ", address: \"#{acct.address}\"" if acct.address %>
+<% end -%>
+end

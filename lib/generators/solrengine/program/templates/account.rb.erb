@@ -1,0 +1,15 @@
+class <%= program_class %>::<%= @account.name %> < Solrengine::Programs::Account
+  program_id "<%= @program_id %>"
+  account_name "<%= @account.name %>"
+
+<% @account.fields.each do |field| -%>
+  borsh_field :<%= field.name %>, <%= field.type.is_a?(String) ? "\"#{field.type}\"" : field.type.inspect %>
+<% end -%>
+
+  # Add custom query methods, e.g.:
+  # def self.for_wallet(wallet_address)
+  #   query(filters: [
+  #     { "memcmp" => { "offset" => 8, "bytes" => wallet_address } }
+  #   ])
+  # end
+end

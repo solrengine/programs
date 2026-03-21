@@ -1,0 +1,171 @@
+import { Controller } from "@hotwired/stimulus"
+import { getWallets } from "@wallet-standard/app"
+import { SolanaSignAndSendTransaction } from "@solana/wallet-standard-features"
+import {
+  pipe,
+  createTransactionMessage,
+  setTransactionMessageLifetimeUsingBlockhash,
+  setTransactionMessageFeePayer,
+  appendTransactionMessageInstruction,
+  compileTransaction,
+  getBase64EncodedWireTransaction,
+  address
+} from "@solana/kit"
+
+// Generated Stimulus controller for <%= @idl_instance.name %> program
+// Program ID: <%= @idl_instance.program_id %>
+//
+// This controller follows the server-built instruction pattern:
+// 1. User fills form → controller sends params to Rails endpoint
+// 2. Rails builds Borsh-encoded instruction data + fetches blockhash
+// 3. Returns instruction data + account metas + blockhash as JSON
+// 4. Controller constructs transaction, wallet signs and sends
+// 5. Reports signature back to server
+export default class extends Controller {
+  static targets = ["status"]
+  static values = {
+    programId: { type: String, default: "<%= @idl_instance.program_id %>" },
+    chain: { type: String, default: "solana:devnet" }
+  }
+
+  connect() {
+    this.wallet = null
+    this.discoverWallet()
+  }
+
+  discoverWallet() {
+    const { get, on } = getWallets()
+    const wallets = get()
+
+    for (const wallet of wallets) {
+      if (wallet.features[SolanaSignAndSendTransaction]) {
+        this.wallet = wallet
+        return
+      }
+    }
+
+    on("register", (...newWallets) => {
+      for (const wallet of newWallets) {
+        if (wallet.features[SolanaSignAndSendTransaction]) {
+          this.wallet = wallet
+          return
+        }
+      }
+    })
+  }
+
+<% @idl_instance.instructions.each do |ix| -%>
+  // Submit '<%= ix.name %>' instruction
+  async <%= ix.name.camelize(:lower) %>(event) {
+    event?.preventDefault()
+    if (!this.wallet) {
+      this.showStatus("No wallet found", "error")
+      return
+    }
+
+    try {
+      this.showStatus("Building transaction...", "pending")
+
+      // Get instruction data from server
+      const response = await this.buildInstruction("<%= ix.name %>", event?.target)
+      if (!response.ok) {
+        const error = await response.json()
+        this.showStatus(error.message || "Failed to build instruction", "error")
+        return
+      }
+
+      const { instruction_data, accounts, blockhash, last_valid_block_height } = await response.json()
+
+      // Build and sign transaction via wallet
+      const signature = await this.signAndSend({
+        instructionData: instruction_data,
+        accounts,
+        blockhash,
+        lastValidBlockHeight: last_valid_block_height
+      })
+
+      this.showStatus(`Transaction sent: ${signature.slice(0, 8)}...`, "success")
+
+      // Report signature to server for confirmation tracking
+      this.reportSignature("<%= ix.name %>", signature)
+    } catch (error) {
+      this.showStatus(error.message, "error")
+    }
+  }
+
+<% end -%>
+  async buildInstruction(name, form) {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
+    const formData = form ? new FormData(form) : new FormData()
+    formData.append("instruction", name)
+
+    return fetch(`/<%= @idl_instance.name %>/instructions`, {
+      method: "POST",
+      headers: { "X-CSRF-Token": csrfToken },
+      body: formData
+    })
+  }
+
+  async signAndSend({ instructionData, accounts, blockhash, lastValidBlockHeight }) {
+    const walletAccount = this.wallet.accounts.find(a =>
+      a.chains.includes(this.chainValue)
+    )
+    if (!walletAccount) throw new Error("No account for chain: " + this.chainValue)
+
+    const feature = this.wallet.features[SolanaSignAndSendTransaction]
+    const instructionBytes = Uint8Array.from(atob(instructionData), c => c.charCodeAt(0))
+
+    const instruction = {
+      programAddress: address(this.programIdValue),
+      accounts: accounts.map(a => ({
+        address: address(a.pubkey),
+        role: this.accountRole(a)
+      })),
+      data: instructionBytes
+    }
+
+    const txMessage = pipe(
+      createTransactionMessage({ version: "legacy" }),
+      m => setTransactionMessageFeePayer(address(walletAccount.address), m),
+      m => setTransactionMessageLifetimeUsingBlockhash(
+        { blockhash: blockhash, lastValidBlockHeight: BigInt(lastValidBlockHeight) },
+        m
+      ),
+      m => appendTransactionMessageInstruction(instruction, m)
+    )
+
+    const compiled = compileTransaction(txMessage)
+    const wireTransaction = getBase64EncodedWireTransaction(compiled)
+
+    const [{ signature }] = await feature.signAndSendTransaction(walletAccount, [
+      { transaction: wireTransaction, chain: this.chainValue }
+    ])
+
+    return typeof signature === "string" ? signature : new TextDecoder().decode(signature)
+  }
+
+  reportSignature(instructionName, signature) {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
+    fetch(`/<%= @idl_instance.name %>/signatures`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": csrfToken
+      },
+      body: JSON.stringify({ instruction: instructionName, signature })
+    }).catch(() => {}) // Best effort
+  }
+
+  accountRole(account) {
+    if (account.is_signer && account.is_writable) return 0x03 // WRITABLE_SIGNER
+    if (account.is_signer) return 0x02 // READONLY_SIGNER
+    if (account.is_writable) return 0x01 // WRITABLE
+    return 0x00 // READONLY
+  }
+
+  showStatus(message, type) {
+    if (!this.hasStatusTarget) return
+    this.statusTarget.textContent = message
+    this.statusTarget.className = `status-${type}`
+  }
+}
