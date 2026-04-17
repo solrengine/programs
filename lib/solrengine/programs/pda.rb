@@ -34,6 +34,23 @@ module Solrengine
         Base58.binary_to_base58(hash, :bitcoin)
       end
 
+      # Map an IDL-declared argument type string to the symbol to_seed expects.
+      # Unknown or composite types fall back to :raw.
+      IDL_SEED_TYPES = {
+        "u8" => :u8,
+        "u16" => :u16,
+        "u32" => :u32,
+        "u64" => :u64,
+        "string" => :string,
+        "pubkey" => :pubkey,
+        "publicKey" => :pubkey,
+        "bytes" => :raw
+      }.freeze
+
+      def self.seed_type_for_idl(idl_type)
+        IDL_SEED_TYPES[idl_type] || :raw
+      end
+
       # Convert a value to seed bytes based on type
       def self.to_seed(value, type = :raw)
         case type

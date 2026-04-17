@@ -86,6 +86,38 @@ signature = builder.sign_and_send
 
 ### PDA Derivation
 
+The generator reads `pda.seeds` from Anchor IDL and emits instruction builders that derive addresses automatically — no manual address math required.
+
+```ruby
+class Voting::InitializeCandidateInstruction < Solrengine::Programs::Instruction
+  program_id "2F1Z4eTmFqbjAnNWaDXXScoBYLMFn1gTasVy2mfPTeJx"
+  instruction_name "initialize_candidate"
+
+  argument :poll_id, "u64"
+  argument :candidate, "string"
+
+  account :signer, signer: true, writable: true
+  account :poll_account, writable: true, pda: [
+    { const: [112, 111, 108, 108] },      # b"poll"
+    { arg: :poll_id, type: :u64 }
+  ]
+  account :candidate_account, writable: true, pda: [
+    { arg: :poll_id, type: :u64 },
+    { arg: :candidate, type: :string }
+  ]
+end
+
+ix = Voting::InitializeCandidateInstruction.new(
+  poll_id: 1,
+  candidate: "alpha",
+  signer: payer_pubkey
+)
+# poll_account and candidate_account addresses are derived automatically
+ix.to_instruction
+```
+
+You can also derive addresses manually:
+
 ```ruby
 address, bump = Solrengine::Programs::Pda.find_program_address(
   ["vault", Solrengine::Programs::Pda.to_seed(user_pubkey, :pubkey)],

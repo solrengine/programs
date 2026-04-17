@@ -94,6 +94,55 @@ class Solrengine::Programs::IdlParserTest < Minitest::Test
     assert_equal "piggy_bank", idl.name
   end
 
+  def test_piggy_bank_accounts_have_no_pda_metadata
+    idl = piggy_bank_idl
+    lock_ix = idl.instructions.find { |ix| ix.name == "lock" }
+    lock_ix.accounts.each do |acct|
+      assert_nil acct.pda, "expected #{acct.name} to have no pda metadata"
+    end
+  end
+
+  def test_parse_voting_idl_instructions_have_pda_seeds
+    idl = voting_idl
+
+    assert_equal "2F1Z4eTmFqbjAnNWaDXXScoBYLMFn1gTasVy2mfPTeJx", idl.program_id
+    assert_equal "voting", idl.name
+
+    init_poll = idl.instructions.find { |ix| ix.name == "initialize_poll" }
+    poll_account = init_poll.accounts.find { |a| a.name == "poll_account" }
+    assert poll_account.pda, "expected poll_account to have pda metadata"
+    assert_equal 2, poll_account.pda.size
+
+    const_seed = poll_account.pda[0]
+    assert_equal "const", const_seed.kind
+    assert_equal [ 112, 111, 108, 108 ], const_seed.value # "poll"
+
+    arg_seed = poll_account.pda[1]
+    assert_equal "arg", arg_seed.kind
+    assert_equal "poll_id", arg_seed.path
+  end
+
+  def test_parse_voting_candidate_has_two_arg_seeds
+    idl = voting_idl
+    init_candidate = idl.instructions.find { |ix| ix.name == "initialize_candidate" }
+    candidate_account = init_candidate.accounts.find { |a| a.name == "candidate_account" }
+
+    assert_equal 2, candidate_account.pda.size
+    assert_equal "arg", candidate_account.pda[0].kind
+    assert_equal "poll_id", candidate_account.pda[0].path
+    assert_equal "arg", candidate_account.pda[1].kind
+    assert_equal "candidate", candidate_account.pda[1].path
+  end
+
+  def test_parse_voting_signer_account_has_no_pda
+    idl = voting_idl
+    init_poll = idl.instructions.find { |ix| ix.name == "initialize_poll" }
+    signer = init_poll.accounts.find { |a| a.name == "signer" }
+    assert_nil signer.pda
+    assert signer.signer
+    assert signer.writable
+  end
+
   def test_discriminators_match_idl_values
     idl = piggy_bank_idl
 

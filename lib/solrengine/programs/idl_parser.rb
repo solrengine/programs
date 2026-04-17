@@ -33,7 +33,12 @@ module Solrengine
       )
 
       ParsedAccountMeta = Struct.new(
-        :name, :writable, :signer, :address, :relations,
+        :name, :writable, :signer, :address, :relations, :pda,
+        keyword_init: true
+      )
+
+      ParsedSeed = Struct.new(
+        :kind, :value, :path,
         keyword_init: true
       )
 
@@ -142,7 +147,19 @@ module Solrengine
             writable: acct["writable"] || false,
             signer: acct["signer"] || false,
             address: acct["address"],
-            relations: acct["relations"]
+            relations: acct["relations"],
+            pda: parse_pda_seeds(acct["pda"])
+          )
+        end
+      end
+
+      def parse_pda_seeds(pda)
+        return nil unless pda
+        (pda["seeds"] || []).map do |seed|
+          ParsedSeed.new(
+            kind: seed["kind"],
+            value: seed["value"],
+            path: seed["path"]
           )
         end
       end

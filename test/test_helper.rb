@@ -58,6 +58,14 @@ module TestFixtures
     @piggy_bank_idl ||= Solrengine::Programs::IdlParser.parse(piggy_bank_idl_json)
   end
 
+  def voting_idl_json
+    File.read(fixture_path("voting_idl.json"))
+  end
+
+  def voting_idl
+    @voting_idl ||= Solrengine::Programs::IdlParser.parse(voting_idl_json)
+  end
+
   # Generate a mock Lock account data (8-byte discriminator + 32-byte pubkey + 8-byte u64)
   def mock_lock_account_data(dst_pubkey: "11111111111111111111111111111111", exp: 1700000000)
     discriminator = Solrengine::Programs::BorshTypes::Discriminator.for_account("Lock")

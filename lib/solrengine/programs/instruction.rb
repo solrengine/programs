@@ -17,14 +17,15 @@ module Solrengine
           attr_accessor name
         end
 
-        def account(name, signer: false, writable: false, address: nil)
+        def account(name, signer: false, writable: false, address: nil, pda: nil)
           accounts_list << {
             name: name.to_sym,
             signer: signer,
             writable: writable,
-            address: address
+            address: address,
+            pda: pda
           }
-          attr_accessor name unless address
+          attr_accessor name unless address || pda
         end
 
         def arguments_list
@@ -110,6 +111,7 @@ module Solrengine
       def validate_accounts
         self.class.accounts_list.each do |acct|
           next if acct[:address] # static addresses don't need to be set
+          next if acct[:pda]     # PDA-derived accounts are computed, not set
           value = send(acct[:name])
           if value.nil?
             @errors << "Account #{acct[:name]} is required"
@@ -119,12 +121,36 @@ module Solrengine
 
       def build_account_metas
         self.class.accounts_list.map do |acct|
-          pubkey = acct[:address] || send(acct[:name])
+          pubkey = if acct[:address]
+            acct[:address]
+          elsif acct[:pda]
+            derive_pda(acct[:pda])
+          else
+            send(acct[:name])
+          end
+
           {
             pubkey: pubkey,
             is_signer: acct[:signer],
             is_writable: acct[:writable]
           }
+        end
+      end
+
+      def derive_pda(seed_specs)
+        seeds = seed_specs.map { |spec| resolve_seed(spec) }
+        address, _bump = Pda.find_program_address(seeds, self.class.program_id)
+        address
+      end
+
+      def resolve_seed(spec)
+        if spec.key?(:const)
+          spec[:const].pack("C*")
+        elsif spec.key?(:arg)
+          value = send(spec[:arg])
+          Pda.to_seed(value, spec[:type] || :raw)
+        else
+          raise Error, "Unknown PDA seed spec: #{spec.inspect}"
         end
       end
     end

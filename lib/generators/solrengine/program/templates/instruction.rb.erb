@@ -1,12 +1,47 @@
+<%#
+  Generator note: IDL arg names occasionally start with an underscore (Rust's
+  "_name = unused" convention). The seed path in the IDL drops the underscore.
+  We strip leading underscores from argument names AND seed paths so the Ruby
+  DSL stays clean and seed references resolve correctly.
+-%>
+<%
+  def normalize(name)
+    name.to_s.sub(/\A_+/, "")
+  end
+
+  arg_type_by_name = {}
+  @instruction.args.each do |arg|
+    arg_type_by_name[normalize(arg.name)] = arg.type
+  end
+-%>
 class <%= program_class %>::<%= @instruction.name.camelize %>Instruction < Solrengine::Programs::Instruction
   program_id "<%= @program_id %>"
   instruction_name "<%= @instruction.name %>"
 
 <% @instruction.args.each do |arg| -%>
-  argument :<%= arg.name %>, <%= arg.type.is_a?(String) ? "\"#{arg.type}\"" : arg.type.inspect %>
+  argument :<%= normalize(arg.name) %>, <%= arg.type.is_a?(String) ? "\"#{arg.type}\"" : arg.type.inspect %>
 <% end -%>
 
 <% @instruction.accounts.each do |acct| -%>
+<% if acct.pda && !acct.pda.empty? -%>
+  account :<%= acct.name %><%= ", signer: true" if acct.signer %><%= ", writable: true" if acct.writable %>, pda: [
+<% acct.pda.each_with_index do |seed, i| -%>
+<% trailing = (i == acct.pda.size - 1) ? "" : "," -%>
+<% if seed.kind == "const" -%>
+    { const: <%= seed.value.inspect %> }<%= trailing %>
+<% elsif seed.kind == "arg" -%>
+<% arg_name = normalize(seed.path) -%>
+<% idl_type = arg_type_by_name[arg_name] -%>
+<% if idl_type.nil? -%>
+<%   raise "Cannot resolve PDA seed reference `#{seed.path}` in instruction `#{@instruction.name}`: no matching argument. Available args: #{arg_type_by_name.keys.join(', ')}. Check the Rust program's function signature against its #[instruction(...)] macro — the names must agree after stripping leading underscores." -%>
+<% end -%>
+<% seed_type = idl_type.is_a?(String) ? Solrengine::Programs::Pda.seed_type_for_idl(idl_type) : :raw -%>
+    { arg: :<%= arg_name %>, type: <%= seed_type.inspect %> }<%= trailing %>
+<% end -%>
+<% end -%>
+  ]
+<% else -%>
   account :<%= acct.name %><%= ", signer: true" if acct.signer %><%= ", writable: true" if acct.writable %><%= ", address: \"#{acct.address}\"" if acct.address %>
+<% end -%>
 <% end -%>
 end

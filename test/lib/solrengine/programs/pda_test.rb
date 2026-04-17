@@ -56,6 +56,21 @@ class Solrengine::Programs::PdaTest < Minitest::Test
     assert_equal 32, result.bytesize
   end
 
+  def test_seed_type_for_idl_maps_known_types
+    assert_equal :u64, Solrengine::Programs::Pda.seed_type_for_idl("u64")
+    assert_equal :u32, Solrengine::Programs::Pda.seed_type_for_idl("u32")
+    assert_equal :u16, Solrengine::Programs::Pda.seed_type_for_idl("u16")
+    assert_equal :u8, Solrengine::Programs::Pda.seed_type_for_idl("u8")
+    assert_equal :string, Solrengine::Programs::Pda.seed_type_for_idl("string")
+    assert_equal :pubkey, Solrengine::Programs::Pda.seed_type_for_idl("pubkey")
+    assert_equal :pubkey, Solrengine::Programs::Pda.seed_type_for_idl("publicKey")
+  end
+
+  def test_seed_type_for_idl_falls_back_to_raw
+    assert_equal :raw, Solrengine::Programs::Pda.seed_type_for_idl("unknown_type")
+    assert_equal :raw, Solrengine::Programs::Pda.seed_type_for_idl(nil)
+  end
+
   def test_create_program_address_returns_nil_for_on_curve
     # Most hashes will be off-curve, but we verify the method works
     program_id = "11111111111111111111111111111111"

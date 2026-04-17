@@ -21,6 +21,25 @@ class TestUnlockInstruction < Solrengine::Programs::Instruction
   account :dst, writable: true
 end
 
+class TestInitializeCandidateInstruction < Solrengine::Programs::Instruction
+  program_id "2F1Z4eTmFqbjAnNWaDXXScoBYLMFn1gTasVy2mfPTeJx"
+  instruction_name "initialize_candidate"
+
+  argument :poll_id, "u64"
+  argument :candidate, "string"
+
+  account :signer, signer: true, writable: true
+  account :poll_account, writable: true, pda: [
+    { const: [ 112, 111, 108, 108 ] },
+    { arg: :poll_id, type: :u64 }
+  ]
+  account :candidate_account, writable: true, pda: [
+    { arg: :poll_id, type: :u64 },
+    { arg: :candidate, type: :string }
+  ]
+  account :system_program, address: "11111111111111111111111111111111"
+end
+
 class Solrengine::Programs::InstructionTest < Minitest::Test
   def test_program_id
     assert_equal "ZaU8j7XCKSxmmkMvg7NnjrLNK6eiLZbHsJQAc2rFzEN", TestLockInstruction.program_id
@@ -142,6 +161,64 @@ class Solrengine::Programs::InstructionTest < Minitest::Test
 
     refute ix.valid?
     assert ix.errors.any? { |e| e.include?("dst") }
+  end
+
+  def test_pda_account_has_no_attr_accessor
+    refute TestInitializeCandidateInstruction.instance_methods.include?(:poll_account)
+    refute TestInitializeCandidateInstruction.instance_methods.include?(:candidate_account)
+    assert TestInitializeCandidateInstruction.instance_methods.include?(:signer)
+  end
+
+  def test_pda_account_skips_validation
+    ix = TestInitializeCandidateInstruction.new(
+      poll_id: 1,
+      candidate: "alpha",
+      signer: "SignerPubkey"
+    )
+    assert ix.valid?, "expected PDA-only accounts not to require explicit addresses; errors: #{ix.errors}"
+  end
+
+  def test_pda_derivation_is_deterministic
+    ix1 = TestInitializeCandidateInstruction.new(
+      poll_id: 1,
+      candidate: "alpha",
+      signer: "11111111111111111111111111111111"
+    )
+    ix2 = TestInitializeCandidateInstruction.new(
+      poll_id: 1,
+      candidate: "alpha",
+      signer: "11111111111111111111111111111111"
+    )
+    metas1 = ix1.to_instruction[:accounts]
+    metas2 = ix2.to_instruction[:accounts]
+    assert_equal metas1[1][:pubkey], metas2[1][:pubkey]
+    assert_equal metas1[2][:pubkey], metas2[2][:pubkey]
+  end
+
+  def test_pda_derivation_changes_with_seed_value
+    ix1 = TestInitializeCandidateInstruction.new(
+      poll_id: 1, candidate: "alpha",
+      signer: "11111111111111111111111111111111"
+    )
+    ix2 = TestInitializeCandidateInstruction.new(
+      poll_id: 2, candidate: "alpha",
+      signer: "11111111111111111111111111111111"
+    )
+    poll_acct_1 = ix1.to_instruction[:accounts][1][:pubkey]
+    poll_acct_2 = ix2.to_instruction[:accounts][1][:pubkey]
+    refute_equal poll_acct_1, poll_acct_2
+  end
+
+  def test_pda_derivation_produces_base58_address
+    ix = TestInitializeCandidateInstruction.new(
+      poll_id: 42, candidate: "alpha",
+      signer: "11111111111111111111111111111111"
+    )
+    metas = ix.to_instruction[:accounts]
+    poll_pubkey = metas[1][:pubkey]
+    assert_kind_of String, poll_pubkey
+    assert poll_pubkey.length.between?(32, 44)
+    refute_equal "", poll_pubkey
   end
 
   def test_unlock_instruction_no_args
