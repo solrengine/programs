@@ -71,6 +71,21 @@ class Solrengine::Programs::PdaTest < Minitest::Test
     assert_equal :raw, Solrengine::Programs::Pda.seed_type_for_idl(nil)
   end
 
+  def test_find_program_address_matches_anchor_for_walletrain_case
+    # Regression: the Ed25519 sign bit must be stripped from byte 31 before
+    # interpreting y. Without this, our on_curve? check diverges from
+    # curve25519-dalek's decompression, and we pick a higher bump than Anchor
+    # for ~half of inputs. The "WalletTrain" candidate under poll_id=1 on
+    # program 2F1Z4eTmF... is a known-failing case pre-fix.
+    program_id = "2F1Z4eTmFqbjAnNWaDXXScoBYLMFn1gTasVy2mfPTeJx"
+    seeds = [ [ 1 ].pack("Q<"), "WalletTrain".b ]
+
+    address, bump = Solrengine::Programs::Pda.find_program_address(seeds, program_id)
+
+    assert_equal "4y3d8RfaJ8j4bQLL688iN49jP3xnySR4VdnLf5CEyehE", address
+    assert_equal 253, bump
+  end
+
   def test_create_program_address_returns_nil_for_on_curve
     # Most hashes will be off-curve, but we verify the method works
     program_id = "11111111111111111111111111111111"

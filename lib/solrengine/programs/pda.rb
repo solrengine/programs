@@ -73,25 +73,33 @@ module Solrengine
         end
       end
 
-      # Check if a 32-byte hash is on the Ed25519 curve.
-      # Uses a simplified check: try to decompress the y-coordinate.
+      # Check if a 32-byte hash is on the Ed25519 curve (matches Solana's
+      # is_on_curve check for PDA rejection).
+      #
+      # Ed25519 compressed-Edwards-Y encoding uses the top bit of byte 31 as
+      # the x-sign, leaving 255 bits for y. The sign bit MUST be stripped
+      # before interpreting y, otherwise the on-curve check diverges from
+      # curve25519-dalek's decompression for ~50% of inputs.
       def self.on_curve?(bytes)
-        # Interpret as little-endian integer (Ed25519 uses little-endian)
-        y = bytes.unpack("C*").each_with_index.sum { |byte, i| byte << (8 * i) }
-        y_squared = y * y
-        p = 2**255 - 19
+        bytes_arr = bytes.unpack("C*")
+        bytes_arr[31] &= 0x7F # strip Ed25519 sign bit
+        y = bytes_arr.each_with_index.sum { |byte, i| byte << (8 * i) }
 
-        # x² = (y² - 1) / (d·y² + 1) mod p
-        # d = -121665/121666 mod p
+        p = 2**255 - 19
+        return false if y >= p # non-canonical y
+
+        y_squared = y * y
+
+        # x² = (y² - 1) / (d·y² + 1) mod p, where d = -121665/121666 mod p
         d = (-121665 * mod_inverse(121666, p)) % p
         numerator = (y_squared - 1) % p
         denominator = (d * y_squared + 1) % p
+        return false if denominator == 0
 
-        # x² = numerator * denominator^(-1) mod p
         x_squared = (numerator * mod_inverse(denominator, p)) % p
+        return true if x_squared == 0 # x = 0 is trivially on-curve
 
-        # Check if x² has a square root mod p
-        # Using Euler's criterion: x^((p-1)/2) ≡ 1 (mod p) means it's a QR
+        # Euler's criterion: x² is a quadratic residue iff x²^((p-1)/2) ≡ 1 (mod p)
         x_squared.pow((p - 1) / 2, p) == 1
       end
       private_class_method :on_curve?
